@@ -4,18 +4,18 @@ USE NorthWind;
 GO
 
 -- 1. Which shippers do we have?
-SELECT * FROM Shippers;
+SELECT CompanyName FROM Shippers;
 
 --2. Return only category name and it's description
 SELECT CategoryName, Description FROM dbo.Categories;
 
 --3. List all the Sales representatives
-SELECT CONCAT(TitleOfCourtesy, ' ', FirstName, ' ', LastName) AS FullName, TitleOfCourtesy, FirstName, LastName, CAST(HireDate AS date) AS HireDate
+SELECT CONCAT(TitleOfCourtesy, ' ', FirstName, ' ', LastName) AS FullName, FirstName, LastName, CAST(HireDate AS date) AS HireDate
 FROM dbo.Employees
 WHERE Title = 'Sales Representative';
 
 --4. List all Sales reps from USA
-SELECT CONCAT(TitleOfCourtesy, ' ', FirstName, ' ', LastName) AS FullName, TitleOfCourtesy, FirstName, LastName, CAST(HireDate AS date) AS HireDate
+SELECT CONCAT(TitleOfCourtesy, ' ', FirstName, ' ', LastName) AS FullName, FirstName, LastName, CAST(HireDate AS date) AS HireDate
 FROM dbo.Employees
 WHERE Title = 'Sales Representative' AND Country = 'USA';
 
@@ -74,7 +74,7 @@ SELECT ContactTitle, COUNT(CustomerID) AS employee_count FROM dbo.Customers
 GROUP BY ContactTitle
 ORDER BY employee_count ASC;
 
---18. show, for each product, the associated Supplier. Show the ProductID, ProductName, and the CompanyName of the Supplier. Sort by ProductID.
+--18. Show, for each product, the associated Supplier. Show the ProductID, ProductName, and the CompanyName of the Supplier. Sort by ProductID.
 SELECT ProductID, ProductName, s.CompanyName FROM dbo.Products p
 INNER JOIN dbo.Suppliers s
 ON p.SupplierID = s.SupplierID
@@ -100,8 +100,7 @@ SELECT Country, City, COUNT(CustomerID) AS TotalCustomers FROM dbo.Customers
 GROUP BY Country, City
 ORDER BY TotalCustomers DESC;
 
-/*22. What products do we have in our inventory that should be reordered? For now, just use the fields UnitsInStock and
-ReorderLevel, where UnitsInStock is less than the ReorderLevel, ignoring the fields UnitsOnOrder and 
+/*22. What products do we have in our inventory that should be reordered? For now, just use the fields UnitsInStock and ReorderLevel, where UnitsInStock is less than the ReorderLevel, ignoring the fields UnitsOnOrder and 
 Discontinued. Order the results by ProductID.*/
 SELECT ProductID, ProductName, UnitsInStock, ReorderLevel FROM dbo.Products
 WHERE UnitsInStock < ReorderLevel
@@ -112,11 +111,16 @@ SELECT ProductID, ProductName, UnitsInStock, UnitsOnOrder, ReorderLevel FROM dbo
 WHERE Discontinued = 0 AND (UnitsInStock+UnitsOnOrder) <= ReorderLevel
 ORDER BY ProductID;
 
-/*24. A salesperson for Northwind is going on a business trip to visit customers, and would like to see a list of all customers,
-sorted by region, alphabetically. However, he wants the customers with no region (null in the Region field) to be at the end, instead of at the top, 
-where you’d normally find the null values. Within the same region, companies should be sorted by CustomerID.*/
+/*24. A salesperson for Northwind is going on a business trip to visit customers, and would like to see a list of all customers, sorted by region, alphabetically. However, he wants the customers with no region 
+(null in the Region field) to be at the end, instead of at the top, where you’d normally find the null values. Within the same region, companies should be sorted by CustomerID.*/
 
---REVIEW QUERY
+SELECT *, RANK() OVER (PARTITION BY Region ORDER BY Region ASC) FROM (
+SELECT CustomerID, CompanyName, ContactName, ContactTitle, CONCAT(Address, ' ', City) AS Address, Phone,
+CASE
+	WHEN Region IS NULL THEN 'Unknown'
+	ELSE Region
+END AS Region FROM dbo.Customers
+) AS temptbl
 
 --25. Return the three ship countries with the highest average freight overall, in descending order by average freight.
 SELECT TOP 3 ShipCountry, AVG(Freight) AS avgcharge FROM dbo.Orders
@@ -162,13 +166,46 @@ LEFT JOIN ( SELECT CustomerID, COUNT(OrderID) AS CountofOrders FROM dbo.Orders
 ON c.CustomerID = orderlist.CustomerID
 WHERE CountofOrders IS NULL;
 
-/*31. Customers with no orders for EmployeeID : One employee (Margaret Peacock, EmployeeID 4) has placed the most orders. However, there are some customers 
-who've never placed an order with her. Show only those customers who have never placed an order with her.*/
+/*31. Customers with no orders for EmployeeID : One employee (Margaret Peacock, EmployeeID 4) has placed the most orders. However, there are some customers who've never placed an order with her. Show only those customers 
+who have never placed an order with her.*/
+WITH cte_all
+AS (
+	SELECT DISTINCT o.CustomerID, COUNT(e.EmployeeID) AS CountAll
+	FROM (  SELECT DISTINCT o.CustomerID, e.EmployeeID FROM dbo.Orders o
+			INNER JOIN dbo.Employees e
+			ON o.EmployeeID = e.EmployeeID
+		) AS o
+	INNER JOIN dbo.Employees e
+	ON o.EmployeeID = e.EmployeeID
+	GROUP BY CustomerID
+),
+cte_without4
+AS (
+	SELECT o.CustomerID, COUNT(e.EmployeeID) AS CountWT4 
+	FROM (  SELECT DISTINCT o.CustomerID, e.EmployeeID FROM dbo.Orders o
+			INNER JOIN dbo.Employees e
+			ON o.EmployeeID = e.EmployeeID
+		) AS o
+	INNER JOIN dbo.Employees e
+	ON o.EmployeeID = e.EmployeeID AND e.EmployeeID <> 4
+	GROUP BY CustomerID
+),
+cte_final
+AS (
+	SELECT cte_all.*, cte_without4.CountWT4,
+	CASE
+		WHEN cte_all.CountAll <> cte_without4.CountWT4 THEN 'Uneven'
+		ELSE 'even'
+	END AS compare
+	FROM cte_all
+	INNER JOIN cte_without4
+	ON cte_all.CustomerID = cte_without4.CustomerID
+)
+SELECT CustomerID FROM cte_final
+WHERE compare = 'even';
 
---REVIEW QUERY
-
-/*We want to send all of our high-value customers a special VIP gift. We're defining high-value customers as those who've made at least 1 order with 
-a total value (not including the discount) equal to $10,000 or more. We only want to consider orders made in the year 1997.*/
+/*We want to send all of our high-value customers a special VIP gift. We're defining high-value customers as those who've made at least 1 order with a total value (not including the discount) equal to $10,000 or more. 
+We only want to consider orders made in the year 1997.*/
 WITH cte_highval
 AS (
 	SELECT *, (UnitPrice*Quantity) AS SalesAmount,
@@ -184,9 +221,7 @@ ON ch.OrderID = o.OrderID
 WHERE ch.SalesAmount >= 10000 AND CONVERT(DATE,o.OrderDate) LIKE '1997%'
 ORDER BY ch.SalesAmount DESC;
 
-/*32. Send all high value customers a special VIp gift. High value customers are those who have made at least 1 order with a total value equal to 10,000 or more 
-excluding the discount. Only consider orders in a specific year*/
-
+/*32. Send all high value customers a special VIp gift. High value customers are those who have made at least 1 order with a total value equal to 10,000 or more excluding the discount. Only consider orders in a specific year*/
 WITH cte_highvalue
 AS (
 	SELECT od.OrderID, orderinfo.CustomerID, orderinfo.OrderDate, orderinfo.CompanyName, (od.UnitPrice * od.Quantity) AS SaleAmount FROM dbo.[Order Details] od
@@ -201,8 +236,7 @@ GROUP BY OrderID, CustomerID, CompanyName
 HAVING SUM(SaleAmount) >= 10000
 ORDER BY TotalSales DESC;
 
-/*33. Send all high value customers a special VIp gift. High value customers are those who have made orders with a total value equal to 15,000 or more 
-excluding the discount. Only consider orders in a specific year*/
+/*33. Send all high value customers a special VIp gift. High value customers are those who have made orders with a total value equal to 15,000 or more excluding the discount. Only consider orders in a specific year*/
 WITH cte_highvalue_totalorder
 AS (
 	SELECT od.OrderID, orderinfo.CustomerID, orderinfo.OrderDate, orderinfo.CompanyName, (od.UnitPrice * od.Quantity) AS SaleAmount FROM dbo.[Order Details] od
@@ -217,8 +251,7 @@ GROUP BY CustomerID, CompanyName
 HAVING SUM(SaleAmount) >= 15000
 ORDER BY TotalSales DESC;
 
-/*34. Send all high value customers a special VIp gift. High value customers are those who have made orders with a total value equal to 15,000 or more 
-including the discount. Only consider orders in a specific year*/
+/*34. Send all high value customers a special VIp gift. High value customers are those who have made orders with a total value equal to 15,000 or more including the discount. Only consider orders in a specific year*/
 WITH cte_dis_highvalue
 AS (
 	SELECT od.OrderID, orderinfo.CustomerID, orderinfo.OrderDate, orderinfo.CompanyName, (od.UnitPrice * od.Quantity) AS SaleAmount,
@@ -239,25 +272,24 @@ HAVING SUM(SaleAmount) >= 10000
 ORDER BY TotalSales DESC;
 
 -- 35. Show all orders made on the last day of the month
---Review this case
 SELECT OrderID, CustomerID, EmployeeID, OrderDate FROM dbo.Orders
-WHERE DAY(OrderDate) IN ('31', '30') OR (MONTH(OrderDate) = 2 AND DAY(OrderDate) IN ('28'))
+WHERE DAY(OrderDate) IN (31, 30) OR (MONTH(OrderDate) = 2 AND DAY(OrderDate) IN (28))
 ORDER BY EmployeeID, OrderID;
 
-/*36. The Northwind mobile app developers are testing an app that customers will use to show orders. In order to make sure that even the largest orders will show up
-correctly on the app, they'd like some samples of orders that have lots of individual line items. Show the 10 orders with the most line items, 
-in order of total line items*/
+/*36. The Northwind mobile app developers are testing an app that customers will use to show orders. In order to make sure that even the largest orders will show up correctly on the app, they'd like some samples of orders 
+that have lots of individual line items. Show the 10 orders with the most line items, in order of total line items*/
 SELECT TOP 10 * FROM (	SELECT OrderID, COUNT(ProductID) AS ItemsOrdered FROM dbo.[Order Details]
 						GROUP BY OrderID
 						) AS OrderCount
 ORDER BY ItemsOrdered DESC;
 
-/*37. The Northwind mobile app developers would now like to just get a random assortment of orders for beta testing on their app. Show a random set of 2% of 
-all orders*/
---Review the question
+/*37. The Northwind mobile app developers would now like to just get a random assortment of orders for beta testing on their app. Show a random set of 2% of all orders*/
+--REVIEW THIS QUERY
 
 /*38. Janet Leverling, one of the salespeople, has come to you with a request. She thinks that she accidentally doubleentered a line item on an order, with a 
 different ProductID, but the same quantity. She remembers that the quantity was 60 or more. Show all the OrderIDs with line items that match this, in order of 
 OrderID*/
 
---Review
+SELECT OrderID, ProductID, Quantity, COUNT(ProductID) OVER (ORDER BY OrderID ASC) AS fil FROM dbo.[Order Details]
+WHERE Quantity >= 60
+ORDER BY Quantity, OrderID ASC
